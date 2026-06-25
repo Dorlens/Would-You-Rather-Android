@@ -33,7 +33,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun HowToPlayBottomSheet(
     onDismissRequest: () -> Unit,
-    sheetState: SheetState
+    sheetState: SheetState,
+    onLetGo: () -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -41,12 +42,12 @@ fun HowToPlayBottomSheet(
         containerColor = Color(0xFF16161E),
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
-        HowToPlayContent(onDismissRequest)
+        HowToPlayContent(onLetGo)
     }
 }
 
 @Composable
-fun HowToPlayContent(onDismiss: () -> Unit) {
+fun HowToPlayContent(onLetGo: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -96,7 +97,7 @@ fun HowToPlayContent(onDismiss: () -> Unit) {
         Spacer(modifier = Modifier.height(32.dp))
 
         Button(
-            onClick = onDismiss,
+            onClick = onLetGo,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
