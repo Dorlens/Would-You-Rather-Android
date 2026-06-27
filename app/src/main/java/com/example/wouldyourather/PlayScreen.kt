@@ -60,20 +60,29 @@ import kotlinx.coroutines.delay
 fun PlayScreen(
     question: FirestoreQuestion?,
     onBack: () -> Unit,
-    onOptionSelected: (FirestoreQuestion, String) -> Unit
+    onOptionSelected: (FirestoreQuestion, String) -> Unit,
+    onVote: suspend (FirestoreQuestion, String) -> Boolean
 ) {
     val currentQuestion = question
     var selectedOption by remember { mutableStateOf<String?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     // Reset selection when question changes
     LaunchedEffect(currentQuestion?.questionId) {
         selectedOption = null
+        isSubmitting = false
     }
 
     LaunchedEffect(selectedOption) {
-        if (selectedOption != null && currentQuestion != null) {
-            delay(400)
-            onOptionSelected(currentQuestion, selectedOption!!)
+        if (selectedOption != null && currentQuestion != null && !isSubmitting) {
+            isSubmitting = true
+            val success = onVote(currentQuestion, selectedOption!!)
+            if (success) {
+                onOptionSelected(currentQuestion, selectedOption!!)
+            } else {
+                selectedOption = null
+                isSubmitting = false
+            }
         }
     }
 

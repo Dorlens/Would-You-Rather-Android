@@ -92,8 +92,12 @@ class MainActivity : ComponentActivity() {
                             question = currentQuestion,
                             onBack = { navController.popBackStack() },
                             onOptionSelected = { question, option ->
+                                navController.navigate("results/${question.questionId}/$option") {
+                                    popUpTo(ROUTE_PLAY) { inclusive = true }
+                                }
+                            },
+                            onVote = { question, option ->
                                 viewModel.submitVote(question, option)
-                                navController.navigate("results/${question.questionId}/$option")
                             }
                         )
                     }

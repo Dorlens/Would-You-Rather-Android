@@ -67,10 +67,10 @@ fun ResultScreen(
     val percentageA = ((question.votesA.toFloat() / totalVotes) * 100).toInt()
     val percentageB = ((question.votesB.toFloat() / totalVotes) * 100).toInt()
     
-    val colorA = Color(question.colorA.toColorInt())
-    val colorB = Color(question.colorB.toColorInt())
+    val colorA = try { Color(question.colorA.toColorInt()) } catch (e: Exception) { Color(0xFFFF6B35) }
+    val colorB = try { Color(question.colorB.toColorInt()) } catch (e: Exception) { Color(0xFF3A86FF) }
 
-    val isMajority = if (selectedOption == "A") percentageA >= 50 else percentageB >= 50
+    val isMajority = if (selectedOption == "A") percentageA > 50 else percentageB > 50
     
     // Define colors based on user choice
     val primaryResultColor = if (selectedOption == "A") colorA else colorB

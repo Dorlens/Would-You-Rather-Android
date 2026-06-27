@@ -4,7 +4,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 
 data class FirestoreQuestion(
-    @DocumentId val questionId: String = "",
+    @DocumentId var questionId: String? = null,
     val question: String = "",
     val optionA: String = "",
     val optionB: String = "",
