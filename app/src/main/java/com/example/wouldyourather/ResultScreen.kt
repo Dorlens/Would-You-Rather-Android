@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -17,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,15 +26,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,100 +48,112 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 
 @Composable
 fun ResultScreen(
-    question: Question,
+    question: FirestoreQuestion,
     selectedOption: String,
-    percentageA: Int,
-    percentageB: Int,
     onNext: () -> Unit,
     onHome: () -> Unit
 ) {
+    val totalVotes = question.totalVotes.coerceAtLeast(1)
+    val percentageA = ((question.votesA.toFloat() / totalVotes) * 100).toInt()
+    val percentageB = ((question.votesB.toFloat() / totalVotes) * 100).toInt()
+    
+    val colorA = Color(question.colorA.toColorInt())
+    val colorB = Color(question.colorB.toColorInt())
+
     val isMajority = if (selectedOption == "A") percentageA >= 50 else percentageB >= 50
+    
+    // Define colors based on user choice
+    val primaryResultColor = if (selectedOption == "A") colorA else colorB
+    val secondaryResultColor = if (selectedOption == "A") colorB else colorA
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFF0F0E17)
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Background Decorations
-            BackgroundDecorations()
-
-            Column(
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(tween(500)) + slideInVertically(initialOffsetY = { it / 10 }, animationSpec = tween(500))
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color(0xFF0F0E17)
+        ) { innerPadding ->
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(innerPadding)
             ) {
-                ResultHeader(onHome)
+                // Pass the primary selected color to the background
+                ResultScreenBackground(primaryResultColor)
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ResultHeader(onHome)
 
-                ResultStatus(isMajority)
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                Spacer(modifier = Modifier.height(32.dp))
+                    ResultStatus(isMajority, primaryResultColor)
 
-                ChoiceCard(
-                    text = if (selectedOption == "A") question.optionA else question.optionB,
-                    accentColor = if (selectedOption == "A") question.colorA else question.colorB
-                )
+                    Spacer(modifier = Modifier.height(32.dp))
 
-                Spacer(modifier = Modifier.height(40.dp))
+                    ChoiceCard(
+                        text = if (selectedOption == "A") question.optionA else question.optionB,
+                        accentColor = primaryResultColor
+                    )
 
-                VoteBar(
-                    label = "A",
-                    text = question.optionA,
-                    percentage = percentageA,
-                    color = question.colorA,
-                    isSelected = selectedOption == "A"
-                )
+                    Spacer(modifier = Modifier.height(40.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    VoteBar(
+                        label = "A",
+                        text = question.optionA,
+                        percentage = percentageA,
+                        color = colorA,
+                        isSelected = selectedOption == "A"
+                    )
 
-                VoteBar(
-                    label = "B",
-                    text = question.optionB,
-                    percentage = percentageB,
-                    color = question.colorB,
-                    isSelected = selectedOption == "B"
-                )
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Spacer(modifier = Modifier.weight(1f))
+                    VoteBar(
+                        label = "B",
+                        text = question.optionB,
+                        percentage = percentageB,
+                        color = colorB,
+                        isSelected = selectedOption == "B"
+                    )
 
-                ResultButtons(onNext, onHome)
+                    Spacer(modifier = Modifier.weight(1f))
 
-                Spacer(modifier = Modifier.height(24.dp))
+                    ResultButtons(onNext, onHome)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
             }
         }
     }
 }
 
 @Composable
-fun BackgroundDecorations() {
-    // Orange glow (Top Right)
+fun ResultScreenBackground(selectedColor: Color) {
+    // Top Right glow uses the color of the choice you picked
     Box(
         modifier = Modifier
             .size(260.dp)
-            .offset(x = 100.dp, y = (-80).dp)
-            .background(Color(0xFFFF6B35).copy(alpha = 0.15f), CircleShape)
+            .offset(x = 180.dp, y = (-80).dp)
+            .background(selectedColor.copy(alpha = 0.2f), CircleShape)
             .blur(60.dp)
     )
 
-    // Teal glow (Bottom Left)
+    // Teal glow (Bottom Left) - Keep this as a constant secondary accent
     Box(
         modifier = Modifier
             .size(220.dp)
@@ -176,7 +191,7 @@ fun ResultHeader(onHome: () -> Unit) {
 }
 
 @Composable
-fun ResultStatus(isMajority: Boolean) {
+fun ResultStatus(isMajority: Boolean, accentColor: Color) {
     val emoji = if (isMajority) "🔥" else "🦄"
     val message = if (isMajority) "YOU'RE WITH THE CROWD!" else "YOU'RE ONE OF A KIND!"
     
@@ -192,7 +207,7 @@ fun ResultStatus(isMajority: Boolean) {
         
         Text(
             text = message,
-            color = Color.White,
+            color = accentColor, // Text color now matches the choice color
             fontSize = 18.sp,
             fontWeight = FontWeight.ExtraBold,
             textAlign = TextAlign.Center
@@ -208,27 +223,66 @@ fun ChoiceCard(text: String, accentColor: Color) {
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(accentColor.copy(alpha = 0.12f))
-                .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.3f)), RoundedCornerShape(24.dp))
-                .padding(24.dp)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            Column {
-                Text(
-                    text = "YOUR CHOICE",
-                    color = accentColor.copy(alpha = 0.8f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = text,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            // Soft Centered Outer Glow (No Offset)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .height(70.dp)
+                    .blur(35.dp)
+                    .background(accentColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+            )
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF1E1E26),
+                border = BorderStroke(1.dp, Brush.verticalGradient(listOf(accentColor.copy(alpha = 0.8f), accentColor.copy(alpha = 0.2f))))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Check Circle
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(accentColor.copy(alpha = 0.1f), CircleShape)
+                            .border(1.dp, accentColor.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column {
+                        Text(
+                            text = "YOUR CHOICE",
+                            color = accentColor.copy(alpha = 0.9f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = text,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 26.sp
+                        )
+                    }
+                }
             }
         }
     }

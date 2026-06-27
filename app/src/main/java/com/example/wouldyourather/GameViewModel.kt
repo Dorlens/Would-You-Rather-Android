@@ -17,8 +17,13 @@ class GameViewModel : ViewModel() {
     private val _questions = mutableStateOf<List<FirestoreQuestion>>(emptyList())
     val questions: State<List<FirestoreQuestion>> = _questions
 
+    private val _currentQuestion = mutableStateOf<FirestoreQuestion?>(null)
+    val currentQuestion: State<FirestoreQuestion?> = _currentQuestion
+
     private val _isLoading = mutableStateOf(true)
     val isLoading: State<Boolean> = _isLoading
+
+    private val answeredQuestionIds = mutableSetOf<String>()
 
     init {
         fetchQuestions()
@@ -28,11 +33,28 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val snapshot = db.collection("questions")
-                    .orderBy("createdAt", Query.Direction.DESCENDING)
                     .get()
                     .await()
-                _questions.value = snapshot.toObjects(FirestoreQuestion::class.java)
+                
+                println("FirestoreDebug: Fetched ${snapshot.size()} documents")
+                
+                val fetchedQuestions = snapshot.documents.mapNotNull { doc ->
+                    try {
+                        doc.toObject(FirestoreQuestion::class.java)
+                    } catch (e: Exception) {
+                        println("FirestoreDebug: Error mapping document ${doc.id}: ${e.message}")
+                        null
+                    }
+                }
+                
+                println("FirestoreDebug: Successfully mapped ${fetchedQuestions.size} questions")
+                
+                _questions.value = fetchedQuestions
+                if (_currentQuestion.value == null) {
+                    loadNextQuestion()
+                }
             } catch (e: Exception) {
+                println("FirestoreDebug: Fetch error: ${e.message}")
                 e.printStackTrace()
             } finally {
                 _isLoading.value = false
@@ -40,32 +62,54 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    fun submitVote(questionId: String, option: String) {
-        viewModelScope.launch {
-            val docRef = db.collection("questions").document(questionId)
-            db.runTransaction { transaction ->
-                val snapshot = transaction.get(docRef)
-                val votesA = snapshot.getLong("votesA") ?: 0
-                val votesB = snapshot.getLong("votesB") ?: 0
-                val totalVotes = snapshot.getLong("totalVotes") ?: 0
-
-                if (option == "A") {
-                    transaction.update(docRef, "votesA", votesA + 1)
-                } else {
-                    transaction.update(docRef, "votesB", votesB + 1)
-                }
-                transaction.update(docRef, "totalVotes", totalVotes + 1)
-            }.await()
-            // Optionally refetch or update local state
-            fetchQuestions()
+    fun loadNextQuestion() {
+        val available = _questions.value.filter { it.questionId !in answeredQuestionIds }
+        if (available.isNotEmpty()) {
+            _currentQuestion.value = available.shuffled().first()
+        } else if (_questions.value.isNotEmpty()) {
+            // Optional: Reset if all questions are answered
+            answeredQuestionIds.clear()
+            _currentQuestion.value = _questions.value.shuffled().first()
         }
     }
 
-    fun hexToColor(hex: String): Color {
-        return try {
-            Color(android.graphics.Color.parseColor(hex))
-        } catch (e: Exception) {
-            Color.Gray
+    fun submitVote(question: FirestoreQuestion, option: String) {
+        answeredQuestionIds.add(question.questionId)
+        
+        // Optimistically update the local state so the user sees the percentage change immediately
+        val updatedQuestions = _questions.value.map {
+            if (it.questionId == question.questionId) {
+                val newVotesA = if (option == "A") it.votesA + 1 else it.votesA
+                val newVotesB = if (option == "B") it.votesB + 1 else it.votesB
+                it.copy(
+                    votesA = newVotesA,
+                    votesB = newVotesB,
+                    totalVotes = it.totalVotes + 1
+                )
+            } else it
+        }
+        _questions.value = updatedQuestions
+
+        viewModelScope.launch {
+            val docRef = db.collection("questions").document(question.questionId)
+            try {
+                db.runTransaction { transaction ->
+                    val snapshot = transaction.get(docRef)
+                    val currentVotesA = snapshot.getLong("votesA") ?: 0
+                    val currentVotesB = snapshot.getLong("votesB") ?: 0
+                    val currentTotal = snapshot.getLong("totalVotes") ?: 0
+
+                    if (option == "A") {
+                        transaction.update(docRef, "votesA", currentVotesA + 1)
+                    } else {
+                        transaction.update(docRef, "votesB", currentVotesB + 1)
+                    }
+                    transaction.update(docRef, "totalVotes", currentTotal + 1)
+                }.await()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // If transaction fails, we might want to reload or handle error
+            }
         }
     }
 }

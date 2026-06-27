@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "988816192032",
+    "project_id": "wouldyourather-7e608",
+    "storage_bucket": "wouldyourather-7e608.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:988816192032:android:8a7ae73dd62abaeb5c0245",
+        "android_client_info": {
+          "package_name": "com.example.wouldyourather"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyClk6Y6N-1uNFIScC52YSIXChZfvw2I_RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
