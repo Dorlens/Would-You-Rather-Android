@@ -48,30 +48,89 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.wouldyourather.ui.theme.WouldYouRatherTheme
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val ROUTE_HOME = "home"
+        const val ROUTE_PLAY = "play"
+        const val ROUTE_RESULTS = "results/{questionId}/{selectedOption}"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             WouldYouRatherTheme {
+                val viewModel: GameViewModel = viewModel()
                 val navController = rememberNavController()
-                NavHost(navController = navController, startDestination = "home") {
-                    composable("home") {
+                val questions by viewModel.questions
+                val currentQuestion by viewModel.currentQuestion
+
+                NavHost(navController = navController, startDestination = ROUTE_HOME) {
+                    composable(ROUTE_HOME) {
                         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                             Box(modifier = Modifier.padding(innerPadding)) {
                                 GameBackground(
-                                    onPlayNow = { navController.navigate("play") }
+                                    onPlayNow = {
+                                        navController.navigate(ROUTE_PLAY) {
+                                            launchSingleTop = true
+                                        }
+                                    }
                                 )
                             }
                         }
                     }
-                    composable("play") {
-                        PlayScreen(onBack = { navController.popBackStack() })
+                    composable(ROUTE_PLAY) {
+                        PlayScreen(
+                            question = currentQuestion,
+                            onBack = { navController.popBackStack() },
+                            onOptionSelected = { question, option ->
+                                navController.navigate("results/${question.questionId}/$option") {
+                                    popUpTo(ROUTE_PLAY) { inclusive = true }
+                                }
+                            },
+                            onVote = { question, option ->
+                                viewModel.submitVote(question, option)
+                            }
+                        )
+                    }
+                    composable(
+                        route = ROUTE_RESULTS,
+                        arguments = listOf(
+                            navArgument("questionId") { type = NavType.StringType },
+                            navArgument("selectedOption") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val questionId = backStackEntry.arguments?.getString("questionId")
+                        val selectedOption = backStackEntry.arguments?.getString("selectedOption") ?: "A"
+                        val question = questions.find { it.questionId == questionId }
+                        
+                        if (question != null) {
+                            ResultScreen(
+                                question = question,
+                                selectedOption = selectedOption,
+                                onNext = {
+                                    viewModel.loadNextQuestion()
+                                    navController.popBackStack(ROUTE_HOME, false)
+                                    navController.navigate(ROUTE_PLAY)
+                                },
+                                onHome = {
+                                    navController.popBackStack(ROUTE_HOME, false)
+                                }
+                            )
+                        } else {
+                            // Fallback if question not found
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Result not found", color = Color.Gray)
+                            }
+                        }
                     }
                 }
             }
