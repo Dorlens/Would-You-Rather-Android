@@ -15,3 +15,10 @@ data class FirestoreQuestion(
     val totalVotes: Long = 0,
     val createdAt: Timestamp? = null
 )
+
+data class HistoryEntry(
+    val question: FirestoreQuestion,
+    val chosen: String,
+    val percentageA: Int,
+    val percentageB: Int
+)

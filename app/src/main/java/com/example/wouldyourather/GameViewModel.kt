@@ -7,9 +7,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val db = FirebaseFirestore.getInstance()
@@ -25,22 +27,33 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoading = mutableStateOf(true)
     val isLoading: State<Boolean> = _isLoading
 
+    private val _history = mutableStateOf<List<HistoryEntry>>(emptyList())
+    val history: State<List<HistoryEntry>> = _history
+
+    private val _isGameOver = mutableStateOf(false)
+    val isGameOver: State<Boolean> = _isGameOver
+
     private var answeredQuestionIds = emptySet<String>()
     private var snapshotListener: ListenerRegistration? = null
 
     init {
-        // Load answered IDs from DataStore
+        loadData()
+    }
+
+    private fun loadData() {
         viewModelScope.launch {
-            dataStoreManager.answeredQuestionIds.collectLatest { ids ->
-                answeredQuestionIds = ids
+            // 1. Load answered IDs
+            try {
+                answeredQuestionIds = dataStoreManager.answeredQuestionIds.first()
+            } catch (e: Exception) {
+                answeredQuestionIds = emptySet()
             }
-        }
-        
-        // Load from Room first for immediate offline availability
-        viewModelScope.launch {
-            localDb.questionDao().getAllQuestions().collectLatest { localQuestions ->
+            
+            // 2. Load from Room (Local cache)
+            try {
+                val localQuestions = localDb.questionDao().getAllQuestions().first()
                 if (localQuestions.isNotEmpty()) {
-                    val mapped = localQuestions.map { 
+                    _questions.value = localQuestions.map { 
                         FirestoreQuestion(
                             questionId = it.questionId,
                             question = it.question,
@@ -53,15 +66,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             totalVotes = it.totalVotes
                         )
                     }
-                    _questions.value = mapped
-                    if (_currentQuestion.value == null) {
-                        loadNextQuestion()
-                    }
+                    loadNextQuestion()
+                    _isLoading.value = false
                 }
-            }
+            } catch (e: Exception) {}
+            
+            // 3. Start fetching from Firebase
+            fetchQuestions()
         }
-
-        fetchQuestions()
     }
 
     private fun fetchQuestions() {
@@ -74,39 +86,45 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (snapshot != null) {
-                    val fetchedQuestions = snapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(FirestoreQuestion::class.java)
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-
-                    _questions.value = fetchedQuestions
-
-                    // Cache to Room
                     viewModelScope.launch {
-                        val localList = fetchedQuestions.map {
-                            LocalQuestion(
-                                questionId = it.questionId ?: "",
-                                question = it.question,
-                                optionA = it.optionA,
-                                optionB = it.optionB,
-                                colorA = it.colorA,
-                                colorB = it.colorB,
-                                votesA = it.votesA,
-                                votesB = it.votesB,
-                                totalVotes = it.totalVotes
-                            )
+                        val fetchedQuestions = withContext(Dispatchers.Default) {
+                            snapshot.documents.mapNotNull { doc ->
+                                try {
+                                    doc.toObject(FirestoreQuestion::class.java)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
                         }
-                        localDb.questionDao().insertAll(localList)
-                    }
 
-                    if (_currentQuestion.value == null) {
-                        loadNextQuestion()
+                        _questions.value = fetchedQuestions
+                        
+                        // Cache to Room
+                        withContext(Dispatchers.IO) {
+                            val localList = fetchedQuestions.map {
+                                LocalQuestion(
+                                    questionId = it.questionId ?: "",
+                                    question = it.question,
+                                    optionA = it.optionA,
+                                    optionB = it.optionB,
+                                    colorA = it.colorA,
+                                    colorB = it.colorB,
+                                    votesA = it.votesA,
+                                    votesB = it.votesB,
+                                    totalVotes = it.totalVotes
+                                )
+                            }
+                            localDb.questionDao().insertAll(localList)
+                        }
+
+                        if (_currentQuestion.value == null && !_isGameOver.value) {
+                            loadNextQuestion()
+                        }
+                        _isLoading.value = false
                     }
+                } else {
+                    _isLoading.value = false
                 }
-                _isLoading.value = false
             }
     }
 
@@ -116,11 +134,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadNextQuestion() {
-        val available = _questions.value.filter { it.questionId !in answeredQuestionIds }
+        val available = _questions.value.filter { it.questionId != null && it.questionId !in answeredQuestionIds }
         if (available.isNotEmpty()) {
             _currentQuestion.value = available.shuffled().first()
+            _isGameOver.value = false
         } else if (_questions.value.isNotEmpty()) {
-            _currentQuestion.value = _questions.value.shuffled().first()
+            _isGameOver.value = true
+            _currentQuestion.value = null
+        }
+    }
+
+    fun restartGame() {
+        answeredQuestionIds = emptySet()
+        _history.value = emptyList()
+        _isGameOver.value = false
+        
+        loadNextQuestion()
+        
+        viewModelScope.launch {
+            dataStoreManager.clearAllAnswers()
         }
     }
 
@@ -144,21 +176,37 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         return try {
             val docRef = db.collection("questions").document(qId)
+            var stats = Triple(0L, 0L, 0L)
+
             db.runTransaction { transaction ->
                 val snapshot = transaction.get(docRef)
                 val currentVotesA = snapshot.getLong("votesA") ?: 0
                 val currentVotesB = snapshot.getLong("votesB") ?: 0
                 val currentTotal = snapshot.getLong("totalVotes") ?: 0
 
+                val nextA = if (option == "A") currentVotesA + 1 else currentVotesA
+                val nextB = if (option == "B") currentVotesB + 1 else currentVotesB
+                val nextTotal = currentTotal + 1
+
+                stats = Triple(nextA, nextB, nextTotal)
+
                 if (option == "A") {
-                    transaction.update(docRef, "votesA", currentVotesA + 1)
+                    transaction.update(docRef, "votesA", nextA)
                 } else {
-                    transaction.update(docRef, "votesB", currentVotesB + 1)
+                    transaction.update(docRef, "votesB", nextB)
                 }
-                transaction.update(docRef, "totalVotes", currentTotal + 1)
+                transaction.update(docRef, "totalVotes", nextTotal)
             }.await()
             
-            // Persist "answered" status to DataStore
+            val entry = HistoryEntry(
+                question = question,
+                chosen = option,
+                percentageA = if (stats.third > 0) ((stats.first.toFloat() / stats.third) * 100).toInt() else 0,
+                percentageB = if (stats.third > 0) ((stats.second.toFloat() / stats.third) * 100).toInt() else 0
+            )
+            _history.value = _history.value + entry
+
+            answeredQuestionIds = answeredQuestionIds + qId
             dataStoreManager.saveAnsweredQuestion(qId)
             true
         } catch (e: Exception) {

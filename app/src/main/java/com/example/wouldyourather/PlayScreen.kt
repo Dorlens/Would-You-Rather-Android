@@ -10,19 +10,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,12 +21,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,9 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,27 +50,38 @@ import kotlinx.coroutines.delay
 @Composable
 fun PlayScreen(
     question: FirestoreQuestion?,
+    history: List<HistoryEntry>,
+    isLoading: Boolean,
+    isGameOver: Boolean,
     onBack: () -> Unit,
     onOptionSelected: (FirestoreQuestion, String) -> Unit,
-    onVote: suspend (FirestoreQuestion, String) -> Boolean
+    onVote: suspend (FirestoreQuestion, String) -> Boolean,
+    onNavigateToGameOver: () -> Unit,
+    onResetGame: () -> Unit
 ) {
-    val currentQuestion = question
     var selectedOption by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
 
+    // Navigation trigger for Game Over
+    LaunchedEffect(isGameOver, history.size) {
+        // Only auto-navigate to Game Over if we actually played some questions in this session
+        if (isGameOver && question == null && history.isNotEmpty()) {
+            onNavigateToGameOver()
+        }
+    }
+
     // Reset selection when question changes
-    LaunchedEffect(currentQuestion?.questionId) {
+    LaunchedEffect(question?.questionId) {
         selectedOption = null
         isSubmitting = false
     }
 
     LaunchedEffect(selectedOption) {
-        if (selectedOption != null && currentQuestion != null && !isSubmitting) {
+        if (selectedOption != null && question != null && !isSubmitting) {
             isSubmitting = true
-            // Give a small delay to show the "Checkmark" animation before navigating
             delay(500)
-            onOptionSelected(currentQuestion, selectedOption!!)
-            onVote(currentQuestion, selectedOption!!)
+            onOptionSelected(question, selectedOption!!)
+            onVote(question, selectedOption!!)
         }
     }
 
@@ -87,132 +89,142 @@ fun PlayScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = Color(0xFF0F0E17)
     ) { innerPadding ->
-        if (currentQuestion == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Loading Questions...", color = Color.Gray)
-            }
-            return@Scaffold
-        }
-
-        val colorA = try { Color(currentQuestion.colorA.toColorInt()) } catch (e: Exception) { Color(0xFFFF6B35) }
-        val colorB = try { Color(currentQuestion.colorB.toColorInt()) } catch (e: Exception) { Color(0xFF3A86FF) }
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // --- BACKGROUND DECORATIONS ---
             PlayScreenBackground()
 
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
+            if (isLoading && question == null) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(color = Color(0xFFFF6B35))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Fetching impossible choices...", color = Color.Gray)
                 }
-                Text(
-                    text = "Would You Rather?",
-                    color = Color.Gray,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
-            }
+            } else if (question == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color(0xFFFF6B35))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Loading choices...", color = Color.Gray)
+                    }
+                }
+            } else {
+                val colorA = try { Color(question.colorA.toColorInt()) } catch (e: Exception) { Color(0xFFFF6B35) }
+                val colorB = try { Color(question.colorB.toColorInt()) } catch (e: Exception) { Color(0xFF3A86FF) }
 
-            // Options Section
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth(0.8f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = currentQuestion.question,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 32.dp)
-                )
-
-                // Option A Card
-                OptionCard(
-                    label = "Option A",
-                    text = currentQuestion.optionA,
-                    accentColor = colorA,
-                    isSelected = selectedOption == "A",
-                    isDimmed = selectedOption == "B",
-                    isEnabled = selectedOption == null,
-                    onClick = { selectedOption = "A" }
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
+                // Header
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .alpha(if (selectedOption != null) 0.4f else 1f)
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HorizontalDivider(
-                        modifier = Modifier.weight(1f),
-                        thickness = 0.1.dp,
-                        color = Color.Gray
-                    )
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .size(36.dp)
-                            .background(Color(0xFFFFE66D), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "OR",
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
                         )
                     }
-                    HorizontalDivider(
-                        modifier = Modifier.weight(1f),
-                        thickness = 0.1.dp,
-                        color = Color.Gray
+                    Text(
+                        text = "Would You Rather?",
+                        color = Color.Gray,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 16.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Option B Card
-                OptionCard(
-                    label = "Option B",
-                    text = currentQuestion.optionB,
-                    accentColor = colorB,
-                    isSelected = selectedOption == "B",
-                    isDimmed = selectedOption == "A",
-                    isEnabled = selectedOption == null,
-                    onClick = { selectedOption = "B" }
-                )
-
+                // Options Section
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
+                        .align(Alignment.Center)
+                        .fillMaxWidth(0.8f),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Tap a card to choose",
-                        color = Color.Gray
+                        text = question.question,
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 32.dp)
                     )
+
+                    OptionCard(
+                        label = "Option A",
+                        text = question.optionA,
+                        accentColor = colorA,
+                        isSelected = selectedOption == "A",
+                        isDimmed = selectedOption == "B",
+                        isEnabled = selectedOption == null,
+                        onClick = { selectedOption = "A" }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .alpha(if (selectedOption != null) 0.4f else 1f)
+                    ) {
+                        HorizontalDivider(
+                            modifier = Modifier.weight(1f),
+                            thickness = 0.1.dp,
+                            color = Color.Gray
+                        )
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .size(36.dp)
+                                .background(Color(0xFFFFE66D), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "OR",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        HorizontalDivider(
+                            modifier = Modifier.weight(1f),
+                            thickness = 0.1.dp,
+                            color = Color.Gray
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OptionCard(
+                        label = "Option B",
+                        text = question.optionB,
+                        accentColor = colorB,
+                        isSelected = selectedOption == "B",
+                        isDimmed = selectedOption == "A",
+                        isEnabled = selectedOption == null,
+                        onClick = { selectedOption = "B" }
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Tap a card to choose",
+                            color = Color.Gray
+                        )
+                    }
                 }
             }
         }
@@ -221,15 +233,12 @@ fun PlayScreen(
 
 @Composable
 fun PlayScreenBackground() {
-    // Orange glow (Top Right)
     Box(
         modifier = Modifier
             .size(260.dp)
             .offset(x = 180.dp, y = (-80).dp)
             .background(Color(0xFFFF6B35).copy(alpha = 0.2f), CircleShape)
     )
-
-    // Teal glow (Bottom Left)
     Box(
         modifier = Modifier
             .size(220.dp)
@@ -285,12 +294,10 @@ fun OptionCard(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Subtle Radial Glow
         if (isSelected) {
             Box(
                 modifier = Modifier
                     .size(200.dp)
-                    .blur(40.dp)
                     .background(accentColor.copy(alpha = glowAlpha), CircleShape)
             )
         }
@@ -323,7 +330,6 @@ fun OptionCard(
                         .padding(horizontal = 16.dp)
                 )
 
-                // Checkmark Badge
                 AnimatedVisibility(
                     visible = isSelected,
                     modifier = Modifier

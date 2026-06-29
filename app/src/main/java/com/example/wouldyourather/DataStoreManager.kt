@@ -23,4 +23,10 @@ class DataStoreManager(private val context: Context) {
             preferences[ANSWERED_QUESTIONS_KEY] = currentIds + id
         }
     }
+
+    suspend fun clearAllAnswers() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(ANSWERED_QUESTIONS_KEY)
+        }
+    }
 }
