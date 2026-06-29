@@ -30,6 +30,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -61,6 +62,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_HOME = "home"
         const val ROUTE_PLAY = "play"
         const val ROUTE_RESULTS = "results/{questionId}/{selectedOption}"
+        const val ROUTE_GAME_OVER = "game_over"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,64 +74,106 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val questions by viewModel.questions
                 val currentQuestion by viewModel.currentQuestion
+                val history by viewModel.history
+                val isGameOver by viewModel.isGameOver
+                val isLoading by viewModel.isLoading
 
-                NavHost(navController = navController, startDestination = ROUTE_HOME) {
-                    composable(ROUTE_HOME) {
-                        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                            Box(modifier = Modifier.padding(innerPadding)) {
-                                GameBackground(
-                                    onPlayNow = {
-                                        navController.navigate(ROUTE_PLAY) {
-                                            launchSingleTop = true
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF0F0E17) // Global dark background to prevent white flashes during navigation
+                ) {
+                    NavHost(navController = navController, startDestination = ROUTE_HOME) {
+                        composable(ROUTE_HOME) {
+                            Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                containerColor = Color(0xFF0F0E17)
+                            ) { innerPadding ->
+                                Box(modifier = Modifier.padding(innerPadding)) {
+                                    GameBackground(
+                                        onPlayNow = {
+                                            navController.navigate(ROUTE_PLAY) {
+                                                launchSingleTop = true
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
-                    }
-                    composable(ROUTE_PLAY) {
-                        PlayScreen(
-                            question = currentQuestion,
-                            onBack = { navController.popBackStack() },
-                            onOptionSelected = { question, option ->
-                                navController.navigate("results/${question.questionId}/$option") {
-                                    popUpTo(ROUTE_PLAY) { inclusive = true }
+                        composable(ROUTE_PLAY) {
+                            PlayScreen(
+                                question = currentQuestion,
+                                history = history,
+                                isLoading = isLoading,
+                                isGameOver = isGameOver,
+                                onBack = { navController.popBackStack() },
+                                onOptionSelected = { question, option ->
+                                    navController.navigate("results/${question.questionId}/$option") {
+                                        popUpTo(ROUTE_PLAY) { inclusive = true }
+                                    }
+                                },
+                                onVote = { question, option ->
+                                    viewModel.submitVote(question, option)
+                                },
+                                onNavigateToGameOver = {
+                                    navController.navigate(ROUTE_GAME_OVER) {
+                                        popUpTo(ROUTE_HOME) { inclusive = false }
+                                    }
+                                },
+                                onResetGame = {
+                                    viewModel.restartGame()
                                 }
-                            },
-                            onVote = { question, option ->
-                                viewModel.submitVote(question, option)
+                            )
+                        }
+                        composable(
+                            route = ROUTE_RESULTS,
+                            arguments = listOf(
+                                navArgument("questionId") { type = NavType.StringType },
+                                navArgument("selectedOption") { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val questionId = backStackEntry.arguments?.getString("questionId")
+                            val selectedOption = backStackEntry.arguments?.getString("selectedOption") ?: "A"
+                            val question = questions.find { it.questionId == questionId }
+                            
+                            if (question != null) {
+                                ResultScreen(
+                                    question = question,
+                                    selectedOption = selectedOption,
+                                    onNext = {
+                                        viewModel.loadNextQuestion()
+                                        if (isGameOver) {
+                                            navController.navigate(ROUTE_GAME_OVER) {
+                                                popUpTo(ROUTE_HOME) { inclusive = false }
+                                            }
+                                        } else {
+                                            navController.popBackStack(ROUTE_HOME, false)
+                                            navController.navigate(ROUTE_PLAY)
+                                        }
+                                    },
+                                    onHome = {
+                                        navController.popBackStack(ROUTE_HOME, false)
+                                    }
+                                )
+                            } else {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Result not found", color = Color.Gray)
+                                }
                             }
-                        )
-                    }
-                    composable(
-                        route = ROUTE_RESULTS,
-                        arguments = listOf(
-                            navArgument("questionId") { type = NavType.StringType },
-                            navArgument("selectedOption") { type = NavType.StringType }
-                        )
-                    ) { backStackEntry ->
-                        val questionId = backStackEntry.arguments?.getString("questionId")
-                        val selectedOption = backStackEntry.arguments?.getString("selectedOption") ?: "A"
-                        val question = questions.find { it.questionId == questionId }
-                        
-                        if (question != null) {
-                            ResultScreen(
-                                question = question,
-                                selectedOption = selectedOption,
-                                onNext = {
-                                    viewModel.loadNextQuestion()
-                                    navController.popBackStack(ROUTE_HOME, false)
-                                    navController.navigate(ROUTE_PLAY)
+                        }
+                        composable(ROUTE_GAME_OVER) {
+                            GameOverScreen(
+                                history = history,
+                                onReplay = {
+                                    viewModel.restartGame()
+                                    navController.navigate(ROUTE_PLAY) {
+                                        popUpTo(ROUTE_HOME) { inclusive = false }
+                                    }
                                 },
                                 onHome = {
+                                    viewModel.restartGame()
                                     navController.popBackStack(ROUTE_HOME, false)
                                 }
                             )
-                        } else {
-                            // Fallback if question not found
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Result not found", color = Color.Gray)
-                            }
                         }
                     }
                 }
