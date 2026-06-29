@@ -1,22 +1,21 @@
 package com.example.wouldyourather
 
+import android.app.Application
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-class GameViewModel : ViewModel() {
+class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val db = FirebaseFirestore.getInstance()
+    private val localDb = AppDatabase.getDatabase(application)
+    private val dataStoreManager = DataStoreManager(application)
+    
     private val _questions = mutableStateOf<List<FirestoreQuestion>>(emptyList())
     val questions: State<List<FirestoreQuestion>> = _questions
 
@@ -26,10 +25,42 @@ class GameViewModel : ViewModel() {
     private val _isLoading = mutableStateOf(true)
     val isLoading: State<Boolean> = _isLoading
 
-    private val answeredQuestionIds = mutableSetOf<String>()
+    private var answeredQuestionIds = emptySet<String>()
     private var snapshotListener: ListenerRegistration? = null
 
     init {
+        // Load answered IDs from DataStore
+        viewModelScope.launch {
+            dataStoreManager.answeredQuestionIds.collectLatest { ids ->
+                answeredQuestionIds = ids
+            }
+        }
+        
+        // Load from Room first for immediate offline availability
+        viewModelScope.launch {
+            localDb.questionDao().getAllQuestions().collectLatest { localQuestions ->
+                if (localQuestions.isNotEmpty()) {
+                    val mapped = localQuestions.map { 
+                        FirestoreQuestion(
+                            questionId = it.questionId,
+                            question = it.question,
+                            optionA = it.optionA,
+                            optionB = it.optionB,
+                            colorA = it.colorA,
+                            colorB = it.colorB,
+                            votesA = it.votesA,
+                            votesB = it.votesB,
+                            totalVotes = it.totalVotes
+                        )
+                    }
+                    _questions.value = mapped
+                    if (_currentQuestion.value == null) {
+                        loadNextQuestion()
+                    }
+                }
+            }
+        }
+
         fetchQuestions()
     }
 
@@ -38,26 +69,39 @@ class GameViewModel : ViewModel() {
         snapshotListener = db.collection("questions")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    println("FirestoreDebug: Fetch error: ${error.message}")
                     _isLoading.value = false
                     return@addSnapshotListener
                 }
 
                 if (snapshot != null) {
-                    println("FirestoreDebug: Fetched ${snapshot.size()} documents")
-
                     val fetchedQuestions = snapshot.documents.mapNotNull { doc ->
                         try {
                             doc.toObject(FirestoreQuestion::class.java)
                         } catch (e: Exception) {
-                            println("FirestoreDebug: Error mapping document ${doc.id}: ${e.message}")
                             null
                         }
                     }
 
-                    println("FirestoreDebug: Successfully mapped ${fetchedQuestions.size} questions")
-
                     _questions.value = fetchedQuestions
+                    
+                    // Cache to Room
+                    viewModelScope.launch {
+                        val localList = fetchedQuestions.map {
+                            LocalQuestion(
+                                questionId = it.questionId ?: "",
+                                question = it.question,
+                                optionA = it.optionA,
+                                optionB = it.optionB,
+                                colorA = it.colorA,
+                                colorB = it.colorB,
+                                votesA = it.votesA,
+                                votesB = it.votesB,
+                                totalVotes = it.totalVotes
+                            )
+                        }
+                        localDb.questionDao().insertAll(localList)
+                    }
+
                     if (_currentQuestion.value == null) {
                         loadNextQuestion()
                     }
@@ -76,8 +120,6 @@ class GameViewModel : ViewModel() {
         if (available.isNotEmpty()) {
             _currentQuestion.value = available.shuffled().first()
         } else if (_questions.value.isNotEmpty()) {
-            // Optional: Reset if all questions are answered
-            answeredQuestionIds.clear()
             _currentQuestion.value = _questions.value.shuffled().first()
         }
     }
@@ -115,11 +157,12 @@ class GameViewModel : ViewModel() {
                 }
                 transaction.update(docRef, "totalVotes", currentTotal + 1)
             }.await()
-            answeredQuestionIds.add(qId)
+            
+            // Persist "answered" status to DataStore
+            dataStoreManager.saveAnsweredQuestion(qId)
             true
         } catch (e: Exception) {
             e.printStackTrace()
-            // Revert optimistic update on failure
             _questions.value = oldQuestions
             false
         }
