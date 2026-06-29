@@ -2,7 +2,11 @@
 <project version="4">
   <component name="PlanningModeManager">
     <option name="approvalStates">
-      <map />
+      <map>
+        <entry key="20260629-122025-69fd9550-9576-4c5c-8b4d-edd0e31483fe" value="true" />
+        <entry key="20260629-125513-99099481-e353-4e18-af2e-7c201def9ad5" value="true" />
+        <entry key="20260629-130120-61ed7177-78f9-499d-8576-f12e1bcea6ea" value="true" />
+      </map>
     </option>
   </component>
 </project>

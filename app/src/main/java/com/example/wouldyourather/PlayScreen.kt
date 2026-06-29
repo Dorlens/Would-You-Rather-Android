@@ -76,13 +76,10 @@ fun PlayScreen(
     LaunchedEffect(selectedOption) {
         if (selectedOption != null && currentQuestion != null && !isSubmitting) {
             isSubmitting = true
-            val success = onVote(currentQuestion, selectedOption!!)
-            if (success) {
-                onOptionSelected(currentQuestion, selectedOption!!)
-            } else {
-                selectedOption = null
-                isSubmitting = false
-            }
+            // Give a small delay to show the "Checkmark" animation before navigating
+            delay(500)
+            onOptionSelected(currentQuestion, selectedOption!!)
+            onVote(currentQuestion, selectedOption!!)
         }
     }
 

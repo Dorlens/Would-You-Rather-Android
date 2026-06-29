@@ -83,7 +83,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     _questions.value = fetchedQuestions
-                    
+
                     // Cache to Room
                     viewModelScope.launch {
                         val localList = fetchedQuestions.map {
