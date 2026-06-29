@@ -20,5 +20,13 @@ data class HistoryEntry(
     val question: FirestoreQuestion,
     val chosen: String,
     val percentageA: Int,
-    val percentageB: Int
+    val percentageB: Int,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class UserSession(
+    val sessionId: String = "",
+    val history: List<HistoryEntry> = emptyList(),
+    val completedAt: Timestamp? = null,
+    val deviceId: String = ""
 )

@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                 val history by viewModel.history
                 val isGameOver by viewModel.isGameOver
                 val isLoading by viewModel.isLoading
+                val timerSeconds by viewModel.timerSeconds
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -90,12 +91,19 @@ class MainActivity : ComponentActivity() {
                             ) { innerPadding ->
                                 Box(modifier = Modifier.padding(innerPadding)) {
                                     GameBackground(
-                                        onPlayNow = {
-                                            navController.navigate(ROUTE_PLAY) {
-                                                launchSingleTop = true
-                                            }
+                                    onPlayNow = {
+                                        // Reset state if we were stuck in a game over/timeout state
+                                        if (isGameOver && history.isEmpty()) {
+                                            viewModel.restartGame()
+                                        } else if (currentQuestion == null) {
+                                            viewModel.loadNextQuestion()
                                         }
-                                    )
+
+                                        navController.navigate(ROUTE_PLAY) {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                )
                                 }
                             }
                         }
@@ -105,6 +113,7 @@ class MainActivity : ComponentActivity() {
                                 history = history,
                                 isLoading = isLoading,
                                 isGameOver = isGameOver,
+                                timerSeconds = timerSeconds,
                                 onBack = { navController.popBackStack() },
                                 onOptionSelected = { question, option ->
                                     navController.navigate("results/${question.questionId}/$option") {

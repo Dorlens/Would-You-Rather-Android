@@ -53,6 +53,7 @@ fun PlayScreen(
     history: List<HistoryEntry>,
     isLoading: Boolean,
     isGameOver: Boolean,
+    timerSeconds: Int,
     onBack: () -> Unit,
     onOptionSelected: (FirestoreQuestion, String) -> Unit,
     onVote: suspend (FirestoreQuestion, String) -> Boolean,
@@ -63,10 +64,14 @@ fun PlayScreen(
     var isSubmitting by remember { mutableStateOf(false) }
 
     // Navigation trigger for Game Over
-    LaunchedEffect(isGameOver, history.size) {
-        // Only auto-navigate to Game Over if we actually played some questions in this session
-        if (isGameOver && question == null && history.isNotEmpty()) {
-            onNavigateToGameOver()
+    LaunchedEffect(isGameOver, history.size, question) {
+        if (isGameOver && question == null) {
+            if (history.isNotEmpty()) {
+                onNavigateToGameOver()
+            } else {
+                // If they never played anything, just go back
+                onBack()
+            }
         }
     }
 
@@ -137,7 +142,7 @@ fun PlayScreen(
                         color = Color.Gray,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 16.dp)
+                        modifier = Modifier.padding(start = 45.dp)
                     )
                 }
 
@@ -148,6 +153,32 @@ fun PlayScreen(
                         .fillMaxWidth(0.8f),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Inactivity Timer Bar
+                    if (selectedOption == null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(timerSeconds / 30f)
+                                    .fillMaxHeight()
+                                    .background(
+                                        if (timerSeconds < 10) Color.Red else Color(0xFFFFE66D), // Changed to Yellow
+                                        CircleShape
+                                    )
+                            )
+                        }
+                        Text(
+                            text = "Ends in ${timerSeconds}s",
+                            color = if (timerSeconds < 10) Color.Red else Color.Gray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+                        )
+                    }
+
                     Text(
                         text = question.question,
                         color = Color.White,
@@ -163,7 +194,7 @@ fun PlayScreen(
                         accentColor = colorA,
                         isSelected = selectedOption == "A",
                         isDimmed = selectedOption == "B",
-                        isEnabled = selectedOption == null,
+                        isEnabled = selectedOption == null && timerSeconds > 0,
                         onClick = { selectedOption = "A" }
                     )
 
@@ -210,7 +241,7 @@ fun PlayScreen(
                         accentColor = colorB,
                         isSelected = selectedOption == "B",
                         isDimmed = selectedOption == "A",
-                        isEnabled = selectedOption == null,
+                        isEnabled = selectedOption == null && timerSeconds > 0,
                         onClick = { selectedOption = "B" }
                     )
 
