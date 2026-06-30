@@ -1,17 +1,22 @@
 package com.example.wouldyourather
 
 import android.app.Application
+import android.provider.Settings
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val db = FirebaseFirestore.getInstance()
@@ -32,6 +37,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isGameOver = mutableStateOf(false)
     val isGameOver: State<Boolean> = _isGameOver
+
+    private val _timerSeconds = mutableStateOf(30)
+    val timerSeconds: State<Int> = _timerSeconds
+
+    private var timerJob: Job? = null
+    private var currentSessionId = UUID.randomUUID().toString()
+    private val deviceId = Settings.Secure.getString(application.contentResolver, Settings.Secure.ANDROID_ID)
 
     private var answeredQuestionIds = emptySet<String>()
     private var snapshotListener: ListenerRegistration? = null
@@ -131,9 +143,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         snapshotListener?.remove()
+        timerJob?.cancel()
     }
 
     fun loadNextQuestion() {
+        startInactivityTimer()
         val available = _questions.value.filter { it.questionId != null && it.questionId !in answeredQuestionIds }
         if (available.isNotEmpty()) {
             _currentQuestion.value = available.shuffled().first()
@@ -145,6 +159,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restartGame() {
+        currentSessionId = UUID.randomUUID().toString()
         answeredQuestionIds = emptySet()
         _history.value = emptyList()
         _isGameOver.value = false
@@ -156,7 +171,42 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun startInactivityTimer() {
+        timerJob?.cancel()
+        _timerSeconds.value = 30
+        timerJob = viewModelScope.launch {
+            while (_timerSeconds.value > 0) {
+                delay(1000)
+                _timerSeconds.value -= 1
+            }
+            // Timer expired - Collect information
+            collectSessionData()
+            _currentQuestion.value = null
+            _isGameOver.value = true
+        }
+    }
+
+    private fun collectSessionData() {
+        if (_history.value.isEmpty()) return
+        
+        val session = UserSession(
+            sessionId = currentSessionId,
+            history = _history.value,
+            completedAt = Timestamp.now(),
+            deviceId = deviceId
+        )
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                db.collection("sessions").document(currentSessionId).set(session).await()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     suspend fun submitVote(question: FirestoreQuestion, option: String): Boolean {
+        timerJob?.cancel() // Stop the inactivity timer immediately on vote
         val qId = question.questionId ?: return false
         
         // Optimistically update the local state
