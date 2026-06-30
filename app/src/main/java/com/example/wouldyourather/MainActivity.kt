@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        composable(ROUTE_PLAY) {
+                            composable(ROUTE_PLAY) {
                             PlayScreen(
                                 question = currentQuestion,
                                 history = history,
@@ -121,7 +121,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onVote = { question, option ->
-                                    viewModel.submitVote(question, option)
+                                    // Start the vote in ViewModel's scope so it finishes even if we navigate
+                                    viewModel.launchVote(question, option)
                                 },
                                 onNavigateToGameOver = {
                                     navController.navigate(ROUTE_GAME_OVER) {
@@ -149,16 +150,16 @@ class MainActivity : ComponentActivity() {
                                     question = question,
                                     selectedOption = selectedOption,
                                     onNext = {
-                                        viewModel.loadNextQuestion()
-                                        if (isGameOver) {
-                                            navController.navigate(ROUTE_GAME_OVER) {
-                                                popUpTo(ROUTE_HOME) { inclusive = false }
-                                            }
-                                        } else {
-                                            navController.popBackStack(ROUTE_HOME, false)
-                                            navController.navigate(ROUTE_PLAY)
+                                    val gameOver = viewModel.loadNextQuestion()
+                                    if (gameOver) {
+                                        navController.navigate(ROUTE_GAME_OVER) {
+                                            popUpTo(ROUTE_HOME) { inclusive = false }
                                         }
-                                    },
+                                    } else {
+                                        navController.popBackStack(ROUTE_HOME, false)
+                                        navController.navigate(ROUTE_PLAY)
+                                    }
+                                },
                                     onHome = {
                                         navController.popBackStack(ROUTE_HOME, false)
                                     }
@@ -173,14 +174,14 @@ class MainActivity : ComponentActivity() {
                             GameOverScreen(
                                 history = history,
                                 onReplay = {
-                                    viewModel.restartGame()
                                     navController.navigate(ROUTE_PLAY) {
                                         popUpTo(ROUTE_HOME) { inclusive = false }
                                     }
+                                    viewModel.restartGame()
                                 },
                                 onHome = {
-                                    viewModel.restartGame()
                                     navController.popBackStack(ROUTE_HOME, false)
+                                    viewModel.restartGame()
                                 }
                             )
                         }
