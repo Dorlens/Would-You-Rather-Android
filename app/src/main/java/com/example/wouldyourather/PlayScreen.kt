@@ -166,7 +166,7 @@ fun PlayScreen(
                                     .fillMaxWidth(timerSeconds / 30f)
                                     .fillMaxHeight()
                                     .background(
-                                        if (timerSeconds < 10) Color.Red else Color(0xFFFFE66D), // Changed to Yellow
+                                        if (timerSeconds < 10) Color.Red else Color(0xFF00FF00), // Brighter Green
                                         CircleShape
                                     )
                             )
