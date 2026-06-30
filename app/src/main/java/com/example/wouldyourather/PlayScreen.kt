@@ -56,7 +56,7 @@ fun PlayScreen(
     timerSeconds: Int,
     onBack: () -> Unit,
     onOptionSelected: (FirestoreQuestion, String) -> Unit,
-    onVote: suspend (FirestoreQuestion, String) -> Boolean,
+    onVote: (FirestoreQuestion, String) -> Unit,
     onNavigateToGameOver: () -> Unit,
     onResetGame: () -> Unit
 ) {

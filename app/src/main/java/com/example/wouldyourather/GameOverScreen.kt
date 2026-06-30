@@ -1,5 +1,6 @@
 package com.example.wouldyourather
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,15 +35,10 @@ fun GameOverScreen(
     onReplay: () -> Unit,
     onHome: () -> Unit
 ) {
-    // Capture the state when history was NOT empty to prevent flickering when history is cleared during transition
-    val finalHistory = remember(history) {
-        if (history.isNotEmpty()) history else null
-    } ?: return // Don't render anything if we never had history (shouldn't happen)
-
-    val withCrowd = finalHistory.count { h ->
+    val withCrowd = history.count { h ->
         (h.chosen == "A" && h.percentageA >= 50) || (h.chosen == "B" && h.percentageB >= 50)
     }
-    val score = ((withCrowd.toFloat() / finalHistory.size) * 100).roundToInt()
+    val score = if (history.isNotEmpty()) ((withCrowd.toFloat() / history.size) * 100).roundToInt() else 0
     
     val (emoji, label) = when {
         score == 100 -> "👑" to "Crowd Pleaser"
@@ -94,7 +90,7 @@ fun GameOverScreen(
                         }
                         append(" of ")
                         withStyle(style = SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
-                            append("${finalHistory.size}")
+                            append("${history.size}")
                         }
                         append(" questions")
                     },
@@ -173,7 +169,7 @@ fun GameOverScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    itemsIndexed(finalHistory) { index, entry ->
+                    itemsIndexed(history) { index, entry ->
                         AnswerCard(index + 1, entry)
                     }
                 }
@@ -241,15 +237,21 @@ fun GameOverScreen(
 
 @Composable
 fun AnswerCard(index: Int, entry: HistoryEntry) {
-    val chosenColor = try {
-        Color((if (entry.chosen == "A") entry.question.colorA else entry.question.colorB).toColorInt())
-    } catch (e: Exception) {
-        if (entry.chosen == "A") Color(0xFFFF6B35) else Color(0xFF3A86FF)
+    val isTimedOut = entry.chosen == "TIMED_OUT"
+    
+    val chosenColor = if (isTimedOut) {
+        Color.Gray
+    } else {
+        try {
+            Color((if (entry.chosen == "A") entry.question.colorA else entry.question.colorB).toColorInt())
+        } catch (e: Exception) {
+            if (entry.chosen == "A") Color(0xFFFF6B35) else Color(0xFF3A86FF)
+        }
     }
     
-    val chosenText = if (entry.chosen == "A") entry.question.optionA else entry.question.optionB
-    val withMajority = (entry.chosen == "A" && entry.percentageA >= 50) || (entry.chosen == "B" && entry.percentageB >= 50)
-    val pct = if (entry.chosen == "A") entry.percentageA else entry.percentageB
+    val chosenText = if (isTimedOut) "No option selected (Timed Out)" else if (entry.chosen == "A") entry.question.optionA else entry.question.optionB
+    val withMajority = !isTimedOut && ((entry.chosen == "A" && entry.percentageA >= 50) || (entry.chosen == "B" && entry.percentageB >= 50))
+    val pct = if (isTimedOut) 0 else if (entry.chosen == "A") entry.percentageA else entry.percentageB
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -271,20 +273,20 @@ fun AnswerCard(index: Int, entry: HistoryEntry) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (withMajority) "🔥" else "🦄",
+                    text = if (isTimedOut) "⏰" else if (withMajority) "🔥" else "🦄",
                     fontSize = 14.sp
                 )
             }
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Q$index — Option ${entry.chosen}",
+                    text = if (isTimedOut) "Q$index — Timed Out" else "Q$index — Option ${entry.chosen}",
                     color = Color.White.copy(alpha = 0.3f),
                     fontSize = 10.sp
                 )
                 Text(
                     text = chosenText,
-                    color = Color.White,
+                    color = if (isTimedOut) Color.Gray else Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 15.sp,
@@ -293,14 +295,16 @@ fun AnswerCard(index: Int, entry: HistoryEntry) {
                 )
             }
             
-            Text(
-                text = "$pct%",
-                color = chosenColor,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.width(48.dp),
-                textAlign = TextAlign.End
-            )
+            if (!isTimedOut) {
+                Text(
+                    text = "$pct%",
+                    color = chosenColor,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.width(60.dp),
+                    textAlign = TextAlign.End
+                )
+            }
         }
     }
 }

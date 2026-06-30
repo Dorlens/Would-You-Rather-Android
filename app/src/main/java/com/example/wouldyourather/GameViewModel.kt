@@ -146,15 +146,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob?.cancel()
     }
 
-    fun loadNextQuestion() {
+    fun loadNextQuestion(): Boolean {
         startInactivityTimer()
         val available = _questions.value.filter { it.questionId != null && it.questionId !in answeredQuestionIds }
-        if (available.isNotEmpty()) {
+        return if (available.isNotEmpty()) {
             _currentQuestion.value = available.shuffled().first()
             _isGameOver.value = false
+            false
         } else if (_questions.value.isNotEmpty()) {
             _isGameOver.value = true
             _currentQuestion.value = null
+            true
+        } else {
+            false
         }
     }
 
@@ -171,6 +175,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun launchVote(question: FirestoreQuestion, option: String) {
+        val qId = question.questionId ?: return
+        // CRITICAL: Mark as answered INSTANTLY on main thread before launching coroutine
+        answeredQuestionIds = answeredQuestionIds + qId
+        
+        viewModelScope.launch {
+            submitVote(question, option)
+        }
+    }
+
     private fun startInactivityTimer() {
         timerJob?.cancel()
         _timerSeconds.value = 30
@@ -180,6 +194,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 _timerSeconds.value -= 1
             }
             // Timer expired - Collect information
+            val current = _currentQuestion.value
+            if (current != null) {
+                val qId = current.questionId
+                if (qId != null) {
+                    answeredQuestionIds = answeredQuestionIds + qId
+                    dataStoreManager.saveAnsweredQuestion(qId)
+                }
+
+                val entry = HistoryEntry(
+                    question = current,
+                    chosen = "TIMED_OUT",
+                    percentageA = 0,
+                    percentageB = 0
+                )
+                _history.value = _history.value + entry
+            }
+
             collectSessionData()
             _currentQuestion.value = null
             _isGameOver.value = true
@@ -209,6 +240,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob?.cancel() // Stop the inactivity timer immediately on vote
         val qId = question.questionId ?: return false
         
+        // Calculate optimistic percentages for immediate display in summary
+        val optTotal = question.totalVotes + 1
+        val optA = if (option == "A") question.votesA + 1 else question.votesA
+        val optB = if (option == "B") question.votesB + 1 else question.votesB
+        val optPctA = ((optA.toFloat() / optTotal) * 100).toInt()
+        val optPctB = ((optB.toFloat() / optTotal) * 100).toInt()
+
+        // Optimistically add to history so it's available immediately if the game ends
+        val optimisticEntry = HistoryEntry(
+            question = question,
+            chosen = option,
+            percentageA = optPctA, 
+            percentageB = optPctB
+        )
+        _history.value = _history.value + optimisticEntry
+
         // Optimistically update the local state
         val oldQuestions = _questions.value
         val updatedQuestions = oldQuestions.map {
@@ -254,15 +301,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 percentageA = if (stats.third > 0) ((stats.first.toFloat() / stats.third) * 100).toInt() else 0,
                 percentageB = if (stats.third > 0) ((stats.second.toFloat() / stats.third) * 100).toInt() else 0
             )
-            _history.value = _history.value + entry
+            
+            // Replace the optimistic entry with the real one
+            _history.value = _history.value.map { 
+                if (it.question.questionId == qId) entry else it 
+            }
 
-            answeredQuestionIds = answeredQuestionIds + qId
-            dataStoreManager.saveAnsweredQuestion(qId)
+            viewModelScope.launch {
+                dataStoreManager.saveAnsweredQuestion(qId)
+            }
             true
         } catch (e: Exception) {
             e.printStackTrace()
             _questions.value = oldQuestions
-            false
+            // If network failed, we still kept it in answeredQuestionIds in launchVote
+            true
         }
     }
 }
