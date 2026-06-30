@@ -1,6 +1,5 @@
 package com.example.wouldyourather
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,10 +34,20 @@ fun GameOverScreen(
     onReplay: () -> Unit,
     onHome: () -> Unit
 ) {
-    val withCrowd = history.count { h ->
+    // Hold onto the last known non-empty history to prevent UI flicker/resets during screen transitions
+    val displayHistory = remember { mutableStateOf(history) }
+    
+    if (history.isNotEmpty()) {
+        displayHistory.value = history
+    }
+
+    val finalHistory = displayHistory.value
+    if (finalHistory.isEmpty()) return // Safety check for first load
+
+    val withCrowd = finalHistory.count { h ->
         (h.chosen == "A" && h.percentageA >= 50) || (h.chosen == "B" && h.percentageB >= 50)
     }
-    val score = if (history.isNotEmpty()) ((withCrowd.toFloat() / history.size) * 100).roundToInt() else 0
+    val score = ((withCrowd.toFloat() / finalHistory.size) * 100).roundToInt()
     
     val (emoji, label) = when {
         score == 100 -> "👑" to "Crowd Pleaser"
@@ -90,7 +99,7 @@ fun GameOverScreen(
                         }
                         append(" of ")
                         withStyle(style = SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
-                            append("${history.size}")
+                            append("${finalHistory.size}")
                         }
                         append(" questions")
                     },
@@ -169,7 +178,7 @@ fun GameOverScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    itemsIndexed(history) { index, entry ->
+                    itemsIndexed(finalHistory) { index, entry ->
                         AnswerCard(index + 1, entry)
                     }
                 }
